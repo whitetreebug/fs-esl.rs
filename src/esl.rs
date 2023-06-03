@@ -1,105 +1,88 @@
 use crate::{codec::EslCodec, error::EslError, event::Event};
-use futures::SinkExt;
+use futures::{
+    stream::{SplitSink, SplitStream},
+    SinkExt, StreamExt,
+};
 use log::{error, trace};
 use std::{
+    collections::VecDeque,
     sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{
-    io::{self, AsyncWriteExt, Interest, ReadHalf, WriteHalf},
     net::{TcpStream, ToSocketAddrs},
-    sync::mpsc,
     time,
 };
-use tokio_stream::StreamExt;
-use tokio_util::codec::{Framed, FramedRead, FramedWrite};
+use uuid::Uuid;
+
+use tokio::sync::oneshot::{self, Sender};
+use tokio_util::codec::Framed;
+
+#[derive(Debug)]
+pub enum EslEventType {
+    ESLEVENTTYPEPLAIN,
+    ESLEVENTTYPEXML,
+    ESLEVENTTYPEJSON,
+}
+
+type FramedWriter = SplitSink<Framed<TcpStream, EslCodec>, String>;
+type FramedReader = SplitStream<Framed<TcpStream, EslCodec>>;
 
 pub struct EslHandle {
     user: String,
     password: String,
-    transport_rx: Arc<Mutex<FramedRead<ReadHalf<TcpStream>, EslCodec>>>,
-    transport_tx: Arc<Mutex<FramedWrite<WriteHalf<TcpStream>, EslCodec>>>,
-   // channel_rx: Receiver<String>,
+    frame_writer: FramedWriter,
+    command: Arc<Mutex<VecDeque<Sender<Event>>>>,
+    // transport_rx: Arc<Mutex<FramedRead<ReadHalf<TcpStream>, EslCodec>>>,
+    // transport_tx: Arc<Mutex<FramedWrite<WriteHalf<TcpStream>, EslCodec>>>,
+    // channel_rx: Receiver<String>,
 }
+
+pub struct EslMsg {}
 
 impl EslHandle {
     pub async fn connect(
+        addr: impl ToSocketAddrs,
         user: &str,
         password: &str,
-        addr: impl ToSocketAddrs,
-    ) -> Result<EslHandle, EslError> {
+    ) -> Result<Self, EslError> {
         let stream: TcpStream = TcpStream::connect(addr).await?;
-       // let (tx, mut rx) = mpsc::channel(1000);
-        let ready = stream.ready(Interest::READABLE | Interest::WRITABLE).await.unwrap();
-        let (orh, owh) = stream.into_split();
-        /* 
-        stream.into_split()
-        let (rh, wh) = io::split(stream);
-        let mut transport_rx = Arc::new(Mutex::new(FramedRead::new(rh, EslCodec::new())));
-        let mut transport_tx = Arc::new(Mutex::new(FramedWrite::new(wh, EslCodec::new())));
+        //let (tx, mut rx) = mpsc::channel(32);
+        let framed = Framed::new(stream, EslCodec::new());
+        let (frame_writer, mut frame_reader) = framed.split::<String>();
         let handle = EslHandle {
             user: user.to_string(),
             password: password.to_string(),
-            transport_rx: transport_rx,
-            transport_tx: transport_tx,
-         //   channel_rx: rx,
+            frame_writer,
+            command: Arc::new(Mutex::new(VecDeque::new())),
         };
-        */
-        handle.auth().await;
-        loop {
-        }
-        // tokio::spawn(async move {
-        //    loop {
-        /*
-            match self.transport_rx.next().await {
-                None => {
-                    //   trace!("recv message unkonw error"),
-                }
-                Some(Err(e)) => {
-                    //   trace!("recv message error: {:?}", e.to_string()),
-                }
-                Some(Ok(event)) => {
-                    //println!("cccccccccccc");
-                    //if tx.send(event).await.is_err() {
-                    //   error!("send event error");
-                }
-            }
-        }
-        */
-        //}).await;
+        let inner_commands = Arc::clone(&handle.command);
 
-        /*
-        let (tx, mut rx) = mpsc::channel::<Event>(100);
-
-
-                tokio::spawn(async move {
-            while let Some(event) = rx.recv().await {
-                trace!("{:?}", event);
-                match event.get_val("Content-Type").unwrap_or_default() {
-                    "auth/request" => {
-                        println!("cccccccccccc");
-                        trace!("{:?}", event);
-                        if transport_tx.send(b"auth ClueCon").await.is_err() {
-                            error!("send to server error");
+        tokio::spawn(async move {
+            loop {
+                match frame_reader.next().await {
+                    None => {
+                        trace!("peer closed");
+                        break;
+                    }
+                    Some(Err(e)) => {
+                        error!("read peer error: {}", e);
+                        break;
+                    }
+                    Some(Ok(event)) => {
+                        if let Some(tx) = inner_commands.lock().unwrap().pop_front() {
+                            if let Err(e) = tx.send(event) {
+                                error!("{:?}", e);
+                            }
                         }
                     }
-                    _ => trace!("other event: {:?}", event),
                 }
             }
         });
-        */
+
         Ok(handle)
     }
 
-    /*pub async fn recv(mut rx: FramedRead<ReadHalf<TcpStream>, EslCodec>)
-    {
-    }
-
-    pub async fn send()
-    {
-
-    }
-    */
     pub async fn connect_timeout(
         &mut self,
         addr: impl ToSocketAddrs,
@@ -124,21 +107,94 @@ impl EslHandle {
         Ok(self)
     }
 
-    pub async fn auth(&self) {
+    pub async fn send(&mut self, cmd: String) -> Result<(), EslError> {
+        match self.frame_writer.feed(cmd).await {
+            Ok(_) => return Ok(()),
+            Err(e) => return Err(e),
+        }
+    }
+
+    pub async fn recv(&mut self, duration: Duration) -> Result<Event, EslError> {
+        self.frame_writer.flush().await?;
+        let (tx, rx) = oneshot::channel();
+        self.command.lock().unwrap().push_back(tx);
+
+        if duration.is_zero() {
+            match rx.await {
+                Ok(event) => Ok(event),
+                Err(e) => return Err(EslError::RecvError(e)),
+            }
+        } else {
+            let res = time::timeout(duration, async { rx.await }).await;
+            match res {
+                Ok(res) => match res {
+                    Ok(res) => return Ok(res),
+                    Err(e) => return Err(EslError::RecvError(e)),
+                },
+                Err(e) => return Err(EslError::ElapsedError(e)),
+            }
+        }
+    }
+
+    pub async fn send_recv(&mut self, cmd: String) -> Result<Event, EslError> {
+        self.frame_writer.send(cmd).await?;
+        let (tx, rx) = oneshot::channel();
+        self.command.lock().unwrap().push_back(tx);
+
+        match rx.await {
+            Ok(event) => return Ok(event),
+            Err(e) => return Err(EslError::RecvError(e)),
+        }
+    }
+
+    pub async fn api(&mut self, cmd: String, arg: String) -> Result<Event, EslError> {
+        let cmd = format!("{} {}\n\n", cmd, arg);
+        self.send_recv(cmd).await
+    }
+
+    pub async fn bgapi(&mut self, cmd: &str, arg: &str, job_uuid: bool) -> Result<Event, EslError> {
+        let arg = if arg.is_empty() {
+            "".to_string()
+        } else {
+            " ".to_string() + arg
+        };
+
+        let command;
+        if job_uuid {
+            command = format!("bgapi {}{}\nJob-UUID: {}", cmd, arg, Uuid::new_v4());
+        } else {
+            command = format!("bgapi {}{}", cmd, arg);
+        }
+
+        self.send_recv(command).await
+    }
+
+    pub async fn events(
+        &mut self,
+        event_type: EslEventType,
+        channel_event: &str,
+    ) -> Result<Event, EslError> {
+        let event_type = match event_type {
+            EslEventType::ESLEVENTTYPEPLAIN => "plain",
+            EslEventType::ESLEVENTTYPEJSON => "json",
+            EslEventType::ESLEVENTTYPEXML => "xml",
+        };
+        self.send_recv(format!("event {} {}", event_type, channel_event))
+            .await
+    }
+
+    async fn send_event(event: Event) {
+        todo!()
+    }
+
+    pub async fn auth(&mut self) -> Result<Event, EslError> {
         let cmd;
         if self.user.is_empty() {
             cmd = format!("auth {}\n\n", self.password);
         } else {
             cmd = format!("auth {} {}\n\n", self.user, self.password);
         }
-
-        trace!("{:?}", cmd);
-        self.send(cmd.as_bytes()).await;
-    }
-
-    pub async fn send(&self, item: &[u8]) {
-        let mut transport_tx = self.transport_tx.lock().unwrap();
-        transport_tx.send(item).await;
+        self.send_recv(cmd).await
     }
 
     //pub async fn subscribe_event(&self) {
@@ -147,4 +203,9 @@ impl EslHandle {
     //   });
     //self.transport_rx.next().await
     //}
+
+    pub async fn disconnect(&mut self) -> Result<(), EslError> {
+        self.send_recv("exit".to_string()).await?;
+        Ok(())
+    }
 }

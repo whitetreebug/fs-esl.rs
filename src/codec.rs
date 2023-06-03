@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use bytes::{Buf, BytesMut};
-use tokio_util::codec::{Decoder, Encoder};
+use tokio_util::codec;
 
 use crate::error::EslError;
 use crate::event::Event;
@@ -25,18 +25,19 @@ fn parse_header(src: &bytes::BytesMut) -> Option<usize> {
     None
 }
 
-impl Encoder<&[u8]> for EslCodec {
+impl codec::Encoder<String> for EslCodec {
     type Error = EslError;
 
-    fn encode(&mut self, item: &[u8], dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: String, dst: &mut BytesMut) -> Result<(), Self::Error> {
         //"Content-Type: auth/request\n\n"
-        dst.extend_from_slice(item);
+        dst.extend_from_slice(item.as_bytes());
         dst.extend_from_slice(b"\n\n");
+        trace!("send: {:?}", dst);
         Ok(())
     }
 }
 
-impl Decoder for EslCodec {
+impl codec::Decoder for EslCodec {
     type Item = Event;
     type Error = EslError;
 
