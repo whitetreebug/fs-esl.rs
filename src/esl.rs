@@ -1,16 +1,12 @@
 use crate::{codec::EslCodec, error::EslError, event::Event};
-use futures::{
-    stream::{SplitSink, SplitStream},
-    SinkExt, StreamExt,
-};
-use log::{error, trace};
+use futures::{stream::SplitSink, SinkExt};
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{
-    net::{TcpStream, ToSocketAddrs},
+    net::{TcpStream},
     time,
 };
 use uuid::Uuid;
@@ -20,69 +16,40 @@ use tokio_util::codec::Framed;
 
 #[derive(Debug)]
 pub enum EslEventType {
-    ESLEVENTTYPEPLAIN,
-    ESLEVENTTYPEXML,
-    ESLEVENTTYPEJSON,
+    PLAIN,
+    XML,
+    JSON,
 }
 
 type FramedWriter = SplitSink<Framed<TcpStream, EslCodec>, String>;
-type FramedReader = SplitStream<Framed<TcpStream, EslCodec>>;
+//type FramedReader = SplitStream<Framed<TcpStream, EslCodec>>;
 
 pub struct EslHandle {
     user: String,
     password: String,
-    frame_writer: FramedWriter,
-    command: Arc<Mutex<VecDeque<Sender<Event>>>>,
-    // transport_rx: Arc<Mutex<FramedRead<ReadHalf<TcpStream>, EslCodec>>>,
-    // transport_tx: Arc<Mutex<FramedWrite<WriteHalf<TcpStream>, EslCodec>>>,
-    // channel_rx: Receiver<String>,
+    pub command: Arc<Mutex<VecDeque<Sender<Event>>>>,
+    framed_writer: FramedWriter,
 }
 
 pub struct EslMsg {}
 
 impl EslHandle {
-    pub async fn connect(
-        addr: impl ToSocketAddrs,
+    pub async fn inbound(
+        framed_writer: FramedWriter,
         user: &str,
         password: &str,
     ) -> Result<Self, EslError> {
-        let stream: TcpStream = TcpStream::connect(addr).await?;
-        //let (tx, mut rx) = mpsc::channel(32);
-        let framed = Framed::new(stream, EslCodec::new());
-        let (frame_writer, mut frame_reader) = framed.split::<String>();
         let handle = EslHandle {
             user: user.to_string(),
             password: password.to_string(),
-            frame_writer,
             command: Arc::new(Mutex::new(VecDeque::new())),
+            framed_writer,
         };
-        let inner_commands = Arc::clone(&handle.command);
-
-        tokio::spawn(async move {
-            loop {
-                match frame_reader.next().await {
-                    None => {
-                        trace!("peer closed");
-                        break;
-                    }
-                    Some(Err(e)) => {
-                        error!("read peer error: {}", e);
-                        break;
-                    }
-                    Some(Ok(event)) => {
-                        if let Some(tx) = inner_commands.lock().unwrap().pop_front() {
-                            if let Err(e) = tx.send(event) {
-                                error!("{:?}", e);
-                            }
-                        }
-                    }
-                }
-            }
-        });
 
         Ok(handle)
     }
 
+    /*
     pub async fn connect_timeout(
         &mut self,
         addr: impl ToSocketAddrs,
@@ -106,16 +73,17 @@ impl EslHandle {
 
         Ok(self)
     }
+    */
 
     pub async fn send(&mut self, cmd: String) -> Result<(), EslError> {
-        match self.frame_writer.feed(cmd).await {
+        match self.framed_writer.feed(cmd).await {
             Ok(_) => return Ok(()),
             Err(e) => return Err(e),
         }
     }
 
     pub async fn recv(&mut self, duration: Duration) -> Result<Event, EslError> {
-        self.frame_writer.flush().await?;
+        self.framed_writer.flush().await?;
         let (tx, rx) = oneshot::channel();
         self.command.lock().unwrap().push_back(tx);
 
@@ -137,7 +105,7 @@ impl EslHandle {
     }
 
     pub async fn send_recv(&mut self, cmd: String) -> Result<Event, EslError> {
-        self.frame_writer.send(cmd).await?;
+        self.framed_writer.send(cmd).await?;
         let (tx, rx) = oneshot::channel();
         self.command.lock().unwrap().push_back(tx);
 
@@ -148,7 +116,7 @@ impl EslHandle {
     }
 
     pub async fn api(&mut self, cmd: String, arg: String) -> Result<Event, EslError> {
-        let cmd = format!("{} {}\n\n", cmd, arg);
+        let cmd = format!("{} {}", cmd, arg);
         self.send_recv(cmd).await
     }
 
@@ -169,40 +137,30 @@ impl EslHandle {
         self.send_recv(command).await
     }
 
+    //only plain now
     pub async fn events(
         &mut self,
         event_type: EslEventType,
         channel_event: &str,
     ) -> Result<Event, EslError> {
         let event_type = match event_type {
-            EslEventType::ESLEVENTTYPEPLAIN => "plain",
-            EslEventType::ESLEVENTTYPEJSON => "json",
-            EslEventType::ESLEVENTTYPEXML => "xml",
+            EslEventType::PLAIN => "plain",
+            EslEventType::JSON => "json",
+            EslEventType::XML => "xml",
         };
         self.send_recv(format!("event {} {}", event_type, channel_event))
             .await
     }
 
-    async fn send_event(event: Event) {
-        todo!()
-    }
-
     pub async fn auth(&mut self) -> Result<Event, EslError> {
         let cmd;
         if self.user.is_empty() {
-            cmd = format!("auth {}\n\n", self.password);
+            cmd = format!("auth {}", self.password);
         } else {
-            cmd = format!("auth {} {}\n\n", self.user, self.password);
+            cmd = format!("auth {} {}", self.user, self.password);
         }
         self.send_recv(cmd).await
     }
-
-    //pub async fn subscribe_event(&self) {
-    //   tokio::spawn(async move {
-    //       self;
-    //   });
-    //self.transport_rx.next().await
-    //}
 
     pub async fn disconnect(&mut self) -> Result<(), EslError> {
         self.send_recv("exit".to_string()).await?;
