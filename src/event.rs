@@ -3,8 +3,8 @@ use std::collections::HashMap;
 #[derive(Debug)]
 pub struct Event {
     pub headers: HashMap<String, String>,
-    pub body: HashMap<String,String>,
-    //pub events: HashMap<String, String>,
+    pub body: HashMap<String, String>,
+    pub res: String,
 }
 
 impl Event {
@@ -12,6 +12,7 @@ impl Event {
         Event {
             headers: HashMap::new(),
             body: HashMap::new(),
+            res: String::new(),
         }
     }
 
@@ -22,7 +23,6 @@ impl Event {
     pub fn body(&self) -> &HashMap<String, String> {
         &self.body
     }
-
 
     pub fn get_val(&self, key: &str) -> Option<&str> {
         match self.headers.get(key) {

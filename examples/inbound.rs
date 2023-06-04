@@ -5,7 +5,7 @@ use fs_esl::{
     event::Event,
 };
 use futures::{stream::SplitStream, StreamExt};
-use log::{error, trace};
+use log::{error, info, trace};
 use std::{
     collections::VecDeque,
     env::set_var,
@@ -43,6 +43,8 @@ async fn events_listen(
 async fn operator(handle: &mut EslHandle) {
     handle.auth().await.unwrap();
     handle.events(EslEventType::PLAIN, "ALL").await.unwrap();
+    let event = handle.bgapi("reloadxml", "", false).await.unwrap();
+    info!("{:?}", event);
 }
 
 #[tokio::main]

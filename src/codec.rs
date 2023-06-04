@@ -16,7 +16,7 @@ impl EslCodec {
     }
 }
 
-fn parse_header(src: &bytes::BytesMut) -> Option<usize> {
+pub fn parse_header(src: &[u8]) -> Option<usize> {
     for (index, c) in src[..].iter().enumerate() {
         if c == &b'\n' && src.get(index + 1) == Some(&b'\n') {
             return Some(index);
@@ -25,7 +25,7 @@ fn parse_header(src: &bytes::BytesMut) -> Option<usize> {
     None
 }
 
-fn conver2map(src: &[u8]) -> HashMap<String, String> {
+pub fn conver2map(src: &[u8]) -> HashMap<String, String> {
     let data = String::from_utf8_lossy(&src);
     data.split('\n')
         .map(|line| line.split(':'))
@@ -59,18 +59,39 @@ impl codec::Decoder for EslCodec {
         let header_end_index = parse_header(src);
         if let Some(header_end_index) = header_end_index {
             event.headers = conver2map(&src[..header_end_index]);
-
+            let header_end_index = header_end_index + 2; //\n\n
             if let Some(content_len) = event.headers.get("Content-Length") {
                 let body_len = content_len.parse::<usize>().unwrap();
                 if body_len <= src.len() {
-                    let body_end_index = header_end_index + 2 + body_len - 2; //remove \n\n
-                    event.body = conver2map(&src[header_end_index + 2..body_end_index]);
-                    src.advance(body_end_index + 2);
+                    let body_end_index_source = header_end_index + body_len - 2;
+                    let mut body_end_index = body_end_index_source;
+                    if let Some(res) =
+                        String::from_utf8_lossy(&src[header_end_index..body_end_index])
+                            .find("\nContent-Length")
+                    {
+                        body_end_index = header_end_index + res;
+
+                        let new_src = &src[body_end_index + 1..];
+                        if let Some(start) = parse_header(new_src) {
+                            let tmp = conver2map(&new_src[..start]);
+                            let start = start + 2; //\n\n
+                            let end_inedx =
+                                tmp.get("Content-Length").unwrap().parse::<usize>().unwrap();
+                            event.res =
+                                String::from_utf8_lossy(&new_src[start..start + end_inedx - 1])
+                                    .to_string();
+                        } else {
+                            panic!("more condition need to deal")
+                        }
+                    }
+
+                    event.body = conver2map(&src[header_end_index..body_end_index]);
+                    src.advance(body_end_index_source + 2);
                 } else {
                     return Ok(None);
                 }
             } else {
-                src.advance(header_end_index + 2);
+                src.advance(header_end_index);
             }
             debug!("recv event: {:?}", event);
             Ok(Some(event))
