@@ -1,4 +1,5 @@
 # fs-esl.rs
+
 learn tokio and create esl lib for freeswtich
 
 ## Example
@@ -12,3 +13,5 @@ cargo run --example inbound
 - [ ] outbound example
 
 - [ ] event json
+  
+- [ ] get background job execute res
