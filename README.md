@@ -1,6 +1,6 @@
 # fs-esl.rs
 
-learn tokio and create esl lib for freeswtich
+learn tokio and create esl lib for freeswitch
 
 ## Example
 
