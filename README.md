@@ -14,4 +14,3 @@ cargo run --example inbound
 
 - [ ] event json
   
-- [ ] get background job execute res

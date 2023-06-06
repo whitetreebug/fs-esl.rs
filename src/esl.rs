@@ -1,14 +1,11 @@
 use crate::{codec::EslCodec, error::EslError, event::Event};
 use futures::{stream::SplitSink, SinkExt};
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::{
-    net::{TcpStream},
-    time,
-};
+use tokio::{net::TcpStream, time};
 use uuid::Uuid;
 
 use tokio::sync::oneshot::{self, Sender};
@@ -28,6 +25,7 @@ pub struct EslHandle {
     user: String,
     password: String,
     pub command: Arc<Mutex<VecDeque<Sender<Event>>>>,
+    pub background_job: Arc<Mutex<HashMap<String, Sender<Event>>>>,
     framed_writer: FramedWriter,
 }
 
@@ -43,6 +41,7 @@ impl EslHandle {
             user: user.to_string(),
             password: password.to_string(),
             command: Arc::new(Mutex::new(VecDeque::new())),
+            background_job: Arc::new(Mutex::new(HashMap::new())),
             framed_writer,
         };
 
@@ -120,21 +119,22 @@ impl EslHandle {
         self.send_recv(cmd).await
     }
 
-    pub async fn bgapi(&mut self, cmd: &str, arg: &str, job_uuid: bool) -> Result<Event, EslError> {
+    pub async fn bgapi(&mut self, cmd: &str, arg: &str) -> Result<Event, EslError> {
         let arg = if arg.is_empty() {
             "".to_string()
         } else {
             " ".to_string() + arg
         };
+        let (tx, rx) = oneshot::channel();
+        let uuid = Uuid::new_v4();
+        self.background_job.lock().unwrap().insert(uuid.to_string(), tx);
+        let command = format!("bgapi {}{}\nJob-UUID: {}", cmd, arg, uuid);
+        self.send_recv(command).await?;
 
-        let command;
-        if job_uuid {
-            command = format!("bgapi {}{}\nJob-UUID: {}", cmd, arg, Uuid::new_v4());
-        } else {
-            command = format!("bgapi {}{}", cmd, arg);
+        match rx.await {
+            Ok(event) => return Ok(event),
+            Err(e) => return Err(EslError::RecvError(e)),
         }
-
-        self.send_recv(command).await
     }
 
     //only plain now

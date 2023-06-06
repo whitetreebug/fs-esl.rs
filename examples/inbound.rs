@@ -7,17 +7,19 @@ use fs_esl::{
 use futures::{stream::SplitStream, StreamExt};
 use log::{error, info, trace};
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     env::set_var,
     sync::{Arc, Mutex},
 };
 use tokio::{net::TcpStream, sync::oneshot::Sender};
 use tokio_util::codec::Framed;
+use uuid::Uuid;
 type FramedReader = SplitStream<Framed<TcpStream, EslCodec>>;
 
 async fn events_listen(
     mut framed_reader: FramedReader,
     inner_commands: Arc<Mutex<VecDeque<Sender<Event>>>>,
+    background_job: Arc<Mutex<HashMap<String, Sender<Event>>>>,
 ) {
     loop {
         match framed_reader.next().await {
@@ -34,6 +36,14 @@ async fn events_listen(
                     if let Err(e) = tx.send(event) {
                         error!("{:?}", e);
                     }
+                } else {
+                    if let Some(uuid) = event.get_val("Job-UUID") {
+                        if let Some(tx) = background_job.lock().unwrap().remove(uuid) {
+                            if let Err(e) = tx.send(event) {
+                                error!("{:?}", e);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -43,7 +53,7 @@ async fn events_listen(
 async fn operator(handle: &mut EslHandle) {
     handle.auth().await.unwrap();
     handle.events(EslEventType::PLAIN, "ALL").await.unwrap();
-    let event = handle.bgapi("reloadxml", "", false).await.unwrap();
+    let event = handle.bgapi("reloadxml", "").await.unwrap();
     info!("{:?}", event);
 }
 
@@ -61,9 +71,10 @@ async fn main() -> Result<(), EslError> {
         .unwrap();
 
     let inner_commands = handle.command.clone();
+    let backgroud_job = handle.background_job.clone();
 
     tokio::join!(
-        events_listen(framed_reader, inner_commands),
+        events_listen(framed_reader, inner_commands, backgroud_job),
         operator(&mut handle)
     );
     Ok(())
