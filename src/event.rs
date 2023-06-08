@@ -37,19 +37,33 @@ impl Event {
         }
     }
 
-    pub fn headers(&self) -> &HashMap<String, String> {
+    pub fn header(&self) -> &HashMap<String, String> {
         &self.header
     }
 
-    pub fn body(&self) -> &str {
+    pub fn get_body(&self) -> &str {
         &self.body
     }
 
-    pub fn get_val(&self, key: &str) -> Option<&str> {
+    pub fn get_header(&self, key: &str) -> Option<&str> {
         match self.header.get(key) {
             Some(v) => Some(v.as_str()),
             None => None,
         }
+    }
+
+    pub fn get_type(&self) -> Option<&str> {
+        match self.header.get("Event-Name") {
+            Some(v) => Some(v.as_str()),
+            None => None,
+        }
+    }
+    pub fn add_header(&mut self, key: &str, val: &str) {
+        self.header.insert(key.to_string(), val.to_string());
+    }
+
+    pub fn add_body(&mut self, body:&str) {
+            self.body = body.to_string()
     }
 }
 /*

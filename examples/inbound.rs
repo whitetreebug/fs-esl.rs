@@ -36,7 +36,7 @@ async fn events_listen(
                         error!("{:?}", e);
                     }
                 } else {
-                    if let Some(uuid) = event.get_val("Job-UUID") {
+                    if let Some(uuid) = event.get_header("Job-UUID") {
                         if let Some(tx) = background_job.lock().unwrap().remove(uuid) {
                             if let Err(e) = tx.send(event) {
                                 error!("{:?}", e);
