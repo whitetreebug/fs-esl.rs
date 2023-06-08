@@ -13,7 +13,6 @@ use std::{
 };
 use tokio::{net::TcpStream, sync::oneshot::Sender};
 use tokio_util::codec::Framed;
-use uuid::Uuid;
 type FramedReader = SplitStream<Framed<TcpStream, EslCodec>>;
 
 async fn events_listen(
@@ -52,14 +51,17 @@ async fn events_listen(
 
 async fn operator(handle: &mut EslHandle) {
     handle.auth().await.unwrap();
-    handle.events(EslEventType::PLAIN, "ALL").await.unwrap();
+    //let events = vec!["CHANNEL_EXECUTE_COMPLETE"];
+    //let events = vec!["BACKGROUND_JOB"];
+    let events = vec!["ALL"];
+    handle.events(EslEventType::PLAIN, events).await.unwrap();
     let event = handle.bgapi("reloadxml", "").await.unwrap();
     info!("{:?}", event);
 }
 
 #[tokio::main]
 async fn main() -> Result<(), EslError> {
-    set_var("RUST_LOG", "trace");
+    set_var("RUST_LOG", "debug");
     env_logger::init();
 
     let stream = TcpStream::connect("127.0.0.1:8021").await?;

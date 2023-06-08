@@ -1,33 +1,147 @@
 use std::collections::HashMap;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Event {
-    pub headers: HashMap<String, String>,
-    pub body: HashMap<String, String>,
-    pub res: String,
+    pub header: HashMap<String, String>,
+    pub body: String,
+}
+
+#[derive(Debug)]
+pub struct EslMsg {
+    pub header: HashMap<String, String>,
+    pub event: Event,
+}
+
+impl EslMsg {
+    pub fn new() -> EslMsg {
+        EslMsg {
+            header: HashMap::new(),
+            event: Event::new(),
+        }
+    }
+
+    pub fn ref_event(&self) -> &Event {
+        &self.event
+    }
+
+    pub fn event(&self) -> Event {
+        self.event.clone()
+    }
 }
 
 impl Event {
     pub fn new() -> Event {
         Event {
-            headers: HashMap::new(),
-            body: HashMap::new(),
-            res: String::new(),
+            header: HashMap::new(),
+            body: String::new(),
         }
     }
 
     pub fn headers(&self) -> &HashMap<String, String> {
-        &self.headers
+        &self.header
     }
 
-    pub fn body(&self) -> &HashMap<String, String> {
+    pub fn body(&self) -> &str {
         &self.body
     }
 
     pub fn get_val(&self, key: &str) -> Option<&str> {
-        match self.headers.get(key) {
+        match self.header.get(key) {
             Some(v) => Some(v.as_str()),
             None => None,
         }
     }
 }
+/*
+    "CUSTOM",
+    "CLONE",
+    "CHANNEL_CREATE",
+    "CHANNEL_DESTROY",
+    "CHANNEL_STATE",
+    "CHANNEL_CALLSTATE",
+    "CHANNEL_ANSWER",
+    "CHANNEL_HANGUP",
+    "CHANNEL_HANGUP_COMPLETE",
+    "CHANNEL_EXECUTE",
+    "CHANNEL_EXECUTE_COMPLETE",
+    "CHANNEL_HOLD",
+    "CHANNEL_UNHOLD",
+    "CHANNEL_BRIDGE",
+    "CHANNEL_UNBRIDGE",
+    "CHANNEL_PROGRESS",
+    "CHANNEL_PROGRESS_MEDIA",
+    "CHANNEL_OUTGOING",
+    "CHANNEL_PARK",
+    "CHANNEL_UNPARK",
+    "CHANNEL_APPLICATION",
+    "CHANNEL_ORIGINATE",
+    "CHANNEL_UUID",
+    "API",
+    "LOG",
+    "INBOUND_CHAN",
+    "OUTBOUND_CHAN",
+    "STARTUP",
+    "SHUTDOWN",
+    "PUBLISH",
+    "UNPUBLISH",
+    "TALK",
+    "NOTALK",
+    "SESSION_CRASH",
+    "MODULE_LOAD",
+    "MODULE_UNLOAD",
+    "DTMF",
+    "MESSAGE",
+    "PRESENCE_IN",
+    "NOTIFY_IN",
+    "PRESENCE_OUT",
+    "PRESENCE_PROBE",
+    "MESSAGE_WAITING",
+    "MESSAGE_QUERY",
+    "ROSTER",
+    "CODEC",
+    "BACKGROUND_JOB",
+    "DETECTED_SPEECH",
+    "DETECTED_TONE",
+    "PRIVATE_COMMAND",
+    "HEARTBEAT",
+    "TRAP",
+    "ADD_SCHEDULE",
+    "DEL_SCHEDULE",
+    "EXE_SCHEDULE",
+    "RE_SCHEDULE",
+    "RELOADXML",
+    "NOTIFY",
+    "PHONE_FEATURE",
+    "PHONE_FEATURE_SUBSCRIBE",
+    "SEND_MESSAGE",
+    "RECV_MESSAGE",
+    "REQUEST_PARAMS",
+    "CHANNEL_DATA",
+    "GENERAL",
+    "COMMAND",
+    "SESSION_HEARTBEAT",
+    "CLIENT_DISCONNECTED",
+    "SERVER_DISCONNECTED",
+    "SEND_INFO",
+    "RECV_INFO",
+    "RECV_RTCP_MESSAGE",
+    "CALL_SECURE",
+    "NAT",
+    "RECORD_START",
+    "RECORD_STOP",
+    "PLAYBACK_START",
+    "PLAYBACK_STOP",
+    "CALL_UPDATE",
+    "FAILURE",
+    "SOCKET_DATA",
+    "MEDIA_BUG_START",
+    "MEDIA_BUG_STOP",
+    "CONFERENCE_DATA_QUERY",
+    "CONFERENCE_DATA",
+    "CALL_SETUP_REQ",
+    "CALL_SETUP_RESULT",
+    "CALL_DETAIL",
+    "DEVICE_STATE",
+    "TEXT",
+    "ALL"
+*/

@@ -29,7 +29,6 @@ pub struct EslHandle {
     framed_writer: FramedWriter,
 }
 
-pub struct EslMsg {}
 
 impl EslHandle {
     pub async fn inbound(
@@ -127,7 +126,10 @@ impl EslHandle {
         };
         let (tx, rx) = oneshot::channel();
         let uuid = Uuid::new_v4();
-        self.background_job.lock().unwrap().insert(uuid.to_string(), tx);
+        self.background_job
+            .lock()
+            .unwrap()
+            .insert(uuid.to_string(), tx);
         let command = format!("bgapi {}{}\nJob-UUID: {}", cmd, arg, uuid);
         self.send_recv(command).await?;
 
@@ -141,14 +143,14 @@ impl EslHandle {
     pub async fn events(
         &mut self,
         event_type: EslEventType,
-        channel_event: &str,
+        events: Vec<&str>,
     ) -> Result<Event, EslError> {
         let event_type = match event_type {
             EslEventType::PLAIN => "plain",
             EslEventType::JSON => "json",
             EslEventType::XML => "xml",
         };
-        self.send_recv(format!("event {} {}", event_type, channel_event))
+        self.send_recv(format!("event {} {}", event_type, events.join(" ")))
             .await
     }
 
