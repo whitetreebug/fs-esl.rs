@@ -12,8 +12,6 @@ cargo run --example inbound
 
 - [ ] outbound example
 
-- [ ] event json
-
 - [ ] event xml
  
 - [ ] add test
