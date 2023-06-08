@@ -48,6 +48,30 @@ impl codec::Encoder<String> for EslCodec {
         Ok(())
     }
 }
+/// #plain event example
+/// ```
+/// Content-Length: 558
+/// Content-Type: text/event-plain
+/// 
+/// Event-Name: BACKGROUND_JOB
+/// Core-UUID: b505a8f7-4a5d-4713-8302-1ae56f727110
+/// FreeSWITCH-Hostname: Tree
+/// FreeSWITCH-Switchname: Tree
+/// FreeSWITCH-IPv4: 132.122.237.194
+/// FreeSWITCH-IPv6: %3A%3A1
+/// Event-Date-Local: 2023-06-08%2009%3A55%3A24
+/// Event-Date-GMT: Thu,%2008%20Jun%202023%2001%3A55%3A24%20GMT
+/// Event-Date-Timestamp: 1686189324905215
+/// Event-Calling-File: mod_event_socket.c
+/// Event-Calling-Function: api_exec
+/// Event-Calling-Line-Number: 1572
+/// Event-Sequence: 817
+/// Job-UUID: 78eca064-62f9-49ed-8bb7-e409fd957fab
+/// Job-Command: reloadxml
+/// Content-Length: 14
+/// 
+/// OK [Success]
+/// ```
 
 impl codec::Decoder for EslCodec {
     type Item = Event;
