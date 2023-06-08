@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["houxirens@qq.com"]
 license-file = "LICENSE"
-
+description  = "Event Socket library(esl) for freeswitch"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
