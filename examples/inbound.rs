@@ -54,7 +54,7 @@ async fn operator(handle: &mut EslHandle) {
     //let events = vec!["CHANNEL_EXECUTE_COMPLETE"];
     //let events = vec!["BACKGROUND_JOB"];
     let events = vec!["ALL"];
-    handle.events(EslEventType::PLAIN, events).await.unwrap();
+    handle.events(EslEventType::JSON, events).await.unwrap();
     let event = handle.bgapi("reloadxml", "").await.unwrap();
     info!("{:?}", event);
 }
