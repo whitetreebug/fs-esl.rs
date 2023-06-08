@@ -29,7 +29,6 @@ pub struct EslHandle {
     framed_writer: FramedWriter,
 }
 
-
 impl EslHandle {
     pub async fn inbound(
         framed_writer: FramedWriter,
@@ -133,6 +132,26 @@ impl EslHandle {
         let command = format!("bgapi {}{}\nJob-UUID: {}", cmd, arg, uuid);
         self.send_recv(command).await?;
 
+        match rx.await {
+            Ok(event) => return Ok(event),
+            Err(e) => return Err(EslError::RecvError(e)),
+        }
+    }
+
+    pub async fn execute(
+        &mut self,
+        app: String,
+        args: String,
+        call_uuid: String,
+    ) -> Result<Event, EslError> {
+        let event_uuid = uuid::Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel();
+        self.background_job
+            .lock()
+            .unwrap()
+            .insert(event_uuid.to_string(), tx);
+        let command  = format!("sendmsg {}\nexecute-app-name: {}\nexecute-app-arg: {}\ncall-command: execute\nEvent-UUID: {}",call_uuid,app,args,event_uuid);
+        self.send_recv(command).await?;
         match rx.await {
             Ok(event) => return Ok(event),
             Err(e) => return Err(EslError::RecvError(e)),
