@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-
 #[derive(Debug, Clone)]
 pub struct Event {
     pub header: HashMap<String, String>,
@@ -62,10 +61,13 @@ impl Event {
         self.header.insert(key.to_string(), val.to_string());
     }
 
-    pub fn add_body(&mut self, body:&str) {
-            self.body = body.to_string()
+    pub fn add_body(&mut self, body: &str) {
+        self.body = body.to_string()
     }
 }
+
+
+
 /*
     "CUSTOM",
     "CLONE",

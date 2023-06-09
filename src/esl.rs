@@ -1,5 +1,6 @@
 use crate::{codec::EslCodec, error::EslError, event::Event};
 use futures::{stream::SplitSink, SinkExt};
+use log::{info,error};
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
@@ -117,6 +118,7 @@ impl EslHandle {
         self.send_recv(cmd).await
     }
 
+    //should subscribe BACKGROUND_JOB first
     pub async fn bgapi(&mut self, cmd: &str, arg: &str) -> Result<Event, EslError> {
         let arg = if arg.is_empty() {
             "".to_string()
@@ -133,8 +135,14 @@ impl EslHandle {
         self.send_recv(command).await?;
 
         match rx.await {
-            Ok(event) => return Ok(event),
-            Err(e) => return Err(EslError::RecvError(e)),
+            Ok(event) => {
+                info!("{:?}", event);
+                return Ok(event);
+            },
+            Err(e) => {
+                error!("{:?}",e);
+                return Err(EslError::RecvError(e));
+            }            
         }
     }
 

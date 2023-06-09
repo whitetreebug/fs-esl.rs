@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-
 use bytes::{Buf, BytesMut};
 use serde_json::Value;
 use tokio_util::codec;
@@ -7,7 +6,7 @@ use tokio_util::codec;
 use crate::esl::EslEventType;
 use crate::event::{self, Event};
 use crate::{error::EslError, event::EslMsg};
-use log::{debug, error, trace, warn};
+use log::{debug, error, trace, warn,info};
 
 #[derive(Debug, Clone)]
 pub struct EslCodec {}
@@ -150,7 +149,7 @@ impl codec::Decoder for EslCodec {
     type Error = EslError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        trace!("recv {:?}", src);
+        info!("recv\n{}", String::from_utf8_lossy(src));
         let mut esl_msg = EslMsg::new();
         let msg_header_end_index = find_crlfcrlf(src);
         if let Some(msg_header_end_index) = msg_header_end_index {
