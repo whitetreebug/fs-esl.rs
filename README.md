@@ -7,11 +7,3 @@ learn tokio and create esl lib for freeswitch
 ```shell
 cargo run --example inbound
 ```
-
-## Todo
-
-- [ ] outbound example
-
-- [ ] event xml
- 
-- [ ] add test

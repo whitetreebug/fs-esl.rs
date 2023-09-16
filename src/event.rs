@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+
+use crate::error::EslError;
 #[derive(Debug, Clone)]
 pub struct Event {
     pub header: HashMap<String, String>,
@@ -64,9 +66,20 @@ impl Event {
     pub fn add_body(&mut self, body: &str) {
         self.body = body.to_string()
     }
+
+    pub fn parse_body(body: &str) -> Option<String> {
+        let space_index = body
+            .find(char::is_whitespace)
+            .expect("can not find _body or parse _body error");
+        let text_start = space_index + 1;
+        let body_length = body.len();
+        if text_start < body_length {
+            Some(body[text_start..(body_length - 1)].to_string())
+        } else {
+            None
+        }
+    }
 }
-
-
 
 /*
     "CUSTOM",

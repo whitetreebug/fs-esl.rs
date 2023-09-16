@@ -1,16 +1,19 @@
 use crate::{codec::EslCodec, error::EslError, event::Event};
-use futures::{stream::SplitSink, SinkExt};
-use log::{info,error};
+use futures::{
+    stream::{SplitSink, SplitStream},
+    SinkExt, StreamExt,
+};
+use log::{error, info, trace};
 use std::{
-    collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex},
+    collections::{HashMap, HashSet, VecDeque},
+    sync::{mpsc, Arc, Mutex},
     time::Duration,
 };
 use tokio::{net::TcpStream, time};
 use uuid::Uuid;
 
 use tokio::sync::oneshot::{self, Sender};
-use tokio_util::codec::Framed;
+use tokio_util::codec::{Framed, FramedRead, FramedWrite};
 
 #[derive(Debug)]
 pub enum EslEventType {
@@ -19,102 +22,46 @@ pub enum EslEventType {
     JSON,
 }
 
+type FramedReader = SplitStream<Framed<TcpStream, EslCodec>>;
 type FramedWriter = SplitSink<Framed<TcpStream, EslCodec>, String>;
-//type FramedReader = SplitStream<Framed<TcpStream, EslCodec>>;
 
 pub struct EslHandle {
+    socket: String,
     user: String,
     password: String,
-    pub command: Arc<Mutex<VecDeque<Sender<Event>>>>,
-    pub background_job: Arc<Mutex<HashMap<String, Sender<Event>>>>,
-    framed_writer: FramedWriter,
+    pub reader: FramedReader,
+    pub writer: FramedWriter,
+    pub background_job: HashSet<String>,
+    //   pub command: Arc<Mutex<VecDeque<Sender<Event>>>>,
+    //  pub background_job: Arc<Mutex<HashMap<String, Sender<Event>>>>,
 }
 
 impl EslHandle {
-    pub async fn inbound(
-        framed_writer: FramedWriter,
-        user: &str,
-        password: &str,
-    ) -> Result<Self, EslError> {
-        let handle = EslHandle {
+    pub async fn inbound(socket: &str, user: &str, password: &str) -> Result<Self, EslError> {
+        let stream = TcpStream::connect(socket).await?;
+        let framed = Framed::new(stream, EslCodec::new());
+        let (framedwrite, framedread) = framed.split();
+        let ret = EslHandle {
+            socket: String::from(socket),
             user: user.to_string(),
             password: password.to_string(),
-            command: Arc::new(Mutex::new(VecDeque::new())),
-            background_job: Arc::new(Mutex::new(HashMap::new())),
-            framed_writer,
+            reader: framedread,
+            writer: framedwrite,
+            background_job: HashSet::new(),
         };
 
-        Ok(handle)
-    }
-
-    /*
-    pub async fn connect_timeout(
-        &mut self,
-        addr: impl ToSocketAddrs,
-        time_out_sec: u64,
-    ) -> Result<&EslHandle, EslError> {
-        let stream = match time::timeout(
-            Duration::from_secs(time_out_sec),
-            TcpStream::connect(addr),
-        )
-        .await
-        {
-            Ok(stream) => match stream {
-                Ok(stream) => Some(stream),
-                Err(_) => None,
-            },
-            Err(e) => {
-                format!("timeout while connecting to server: {}", e.to_string()); // to do log
-                None
-            }
-        };
-
-        Ok(self)
-    }
-    */
-
-    pub async fn send(&mut self, cmd: String) -> Result<(), EslError> {
-        match self.framed_writer.feed(cmd).await {
-            Ok(_) => return Ok(()),
-            Err(e) => return Err(e),
-        }
-    }
-
-    pub async fn recv(&mut self, duration: Duration) -> Result<Event, EslError> {
-        self.framed_writer.flush().await?;
-        let (tx, rx) = oneshot::channel();
-        self.command.lock().unwrap().push_back(tx);
-
-        if duration.is_zero() {
-            match rx.await {
-                Ok(event) => Ok(event),
-                Err(e) => return Err(EslError::RecvError(e)),
-            }
-        } else {
-            let res = time::timeout(duration, async { rx.await }).await;
-            match res {
-                Ok(res) => match res {
-                    Ok(res) => return Ok(res),
-                    Err(e) => return Err(EslError::RecvError(e)),
-                },
-                Err(e) => return Err(EslError::ElapsedError(e)),
-            }
-        }
+        Ok(ret)
     }
 
     pub async fn send_recv(&mut self, cmd: String) -> Result<Event, EslError> {
-        self.framed_writer.send(cmd).await?;
-        let (tx, rx) = oneshot::channel();
-        self.command.lock().unwrap().push_back(tx);
-
-        match rx.await {
-            Ok(event) => return Ok(event),
-            Err(e) => return Err(EslError::RecvError(e)),
+        self.writer.send(cmd).await?;
+        while let Some(event) = self.reader.next().await {
+            return event;
         }
+        Err(EslError::UnknowError)
     }
-
-    pub async fn api(&mut self, cmd: String, arg: String) -> Result<Event, EslError> {
-        let cmd = format!("{} {}", cmd, arg);
+    pub async fn api(&mut self, cmd: &str, arg: &str) -> Result<Event, EslError> {
+        let cmd = format!("api {} {}", cmd, arg);
         self.send_recv(cmd).await
     }
 
@@ -125,49 +72,47 @@ impl EslHandle {
         } else {
             " ".to_string() + arg
         };
-        let (tx, rx) = oneshot::channel();
         let uuid = Uuid::new_v4();
-        self.background_job
-            .lock()
-            .unwrap()
-            .insert(uuid.to_string(), tx);
+        self.background_job.insert(uuid.to_string());
         let command = format!("bgapi {}{}\nJob-UUID: {}", cmd, arg, uuid);
-        self.send_recv(command).await?;
 
-        match rx.await {
+        match self.send_recv(command).await {
             Ok(event) => {
                 info!("{:?}", event);
                 return Ok(event);
-            },
+            }
             Err(e) => {
-                error!("{:?}",e);
-                return Err(EslError::RecvError(e));
-            }            
+                error!("{:?}", e);
+                return Err(e);
+            }
         }
     }
 
     pub async fn execute(
         &mut self,
-        app: String,
-        args: String,
-        call_uuid: String,
+        app: &str,
+        args: &str,
+        call_uuid: &str,
     ) -> Result<Event, EslError> {
-        let event_uuid = uuid::Uuid::new_v4().to_string();
-        let (tx, rx) = oneshot::channel();
-        self.background_job
-            .lock()
-            .unwrap()
-            .insert(event_uuid.to_string(), tx);
-        let command  = format!("sendmsg {}\nexecute-app-name: {}\nexecute-app-arg: {}\ncall-command: execute\nEvent-UUID: {}",call_uuid,app,args,event_uuid);
-        self.send_recv(command).await?;
-        match rx.await {
-            Ok(event) => return Ok(event),
-            Err(e) => return Err(EslError::RecvError(e)),
+        let uuid = uuid::Uuid::new_v4().to_string();
+        self.background_job.insert(uuid.to_string());
+        let command  = format!("sendmsg {}\nexecute-app-name: {}\nexecute-app-arg: {}\ncall-command: execute\nEvent-UUID: {}",call_uuid,app,args,uuid);
+        info! {"{}", command};
+
+        match self.send_recv(command).await {
+            Ok(event) => {
+                info!("{:?}", event);
+                return Ok(event);
+            }
+            Err(e) => {
+                error!("{:?}", e);
+                return Err(e);
+            }
         }
     }
 
     //only plain now
-    pub async fn events(
+    pub async fn subscribe(
         &mut self,
         event_type: EslEventType,
         events: Vec<&str>,
@@ -194,5 +139,31 @@ impl EslHandle {
     pub async fn disconnect(&mut self) -> Result<(), EslError> {
         self.send_recv("exit".to_string()).await?;
         Ok(())
+    }
+
+    pub async fn start_events_listen(reader: &mut FramedReader, func: &dyn Fn(Event)) {
+        loop {
+            match reader.next().await {
+                None => {
+                    trace!("framd_reader read none");
+                    break;
+                }
+                Some(Err(e)) => {
+                    error!("{:?}", e);
+                    break;
+                }
+                Some(Ok(event)) => {
+                    func(event);
+
+                    // if let Some(uuid) = event.get_header("Job-UUID") {
+                    //     if self.background_job.contains(uuid) {
+                    //         self.background_job.remove(uuid);
+                    //     } else {
+                    //         error!("extra uuid {:?}", uuid);
+                    //     }
+                    // }
+                }
+            }
+        }
     }
 }

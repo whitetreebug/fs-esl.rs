@@ -16,4 +16,7 @@ pub enum EslError {
 
     #[error("Elapsed")]
     ElapsedError(#[from] time::error::Elapsed),
+
+    #[error("UnknowError")]
+    UnknowError,
 }
