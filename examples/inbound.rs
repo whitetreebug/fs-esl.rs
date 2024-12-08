@@ -6,7 +6,7 @@ use fs_esl::{
 use log::{error, info, trace};
 use std::time::SystemTime;
 
-fn func(event: Event) {
+fn func(event: &Event) {
     match event.get_header("Event-Name") {
         Some("CHANNEL_ANSWER") => {}
         Some(_) => {
@@ -14,6 +14,9 @@ fn func(event: Event) {
         }
         None => {
             trace!("{:?}", event);
+            if let Some(uuid) = event.get_header("Job-UUID") {
+                info!("uuid: {}", uuid)
+            }
         }
     }
 }
@@ -54,7 +57,7 @@ async fn main() -> Result<(), EslError> {
     ];
     //let events = vec!["ALL"];
     handle.subscribe(EslEventType::PLAIN, events).await.unwrap();
-
-    EslHandle::start_events_listen(&mut handle.reader, &func).await;
+    let uuid = handle.bgapi("reloadxml","").await;
+    handle.start_events_listen(&func).await;
     Ok(())
 }

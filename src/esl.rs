@@ -31,9 +31,7 @@ pub struct EslHandle {
     password: String,
     pub reader: FramedReader,
     pub writer: FramedWriter,
-    pub background_job: HashSet<String>,
-    //   pub command: Arc<Mutex<VecDeque<Sender<Event>>>>,
-    //  pub background_job: Arc<Mutex<HashMap<String, Sender<Event>>>>,
+    //pub background_job: HashSet<String>,
 }
 
 impl EslHandle {
@@ -47,7 +45,7 @@ impl EslHandle {
             password: password.to_string(),
             reader: framedread,
             writer: framedwrite,
-            background_job: HashSet::new(),
+            //background_job: HashSet::new(),
         };
 
         Ok(ret)
@@ -66,24 +64,24 @@ impl EslHandle {
     }
 
     //should subscribe BACKGROUND_JOB first
-    pub async fn bgapi(&mut self, cmd: &str, arg: &str) -> Result<Event, EslError> {
+    pub async fn bgapi(&mut self, cmd: &str, arg: &str) -> Option<Uuid> {
         let arg = if arg.is_empty() {
             "".to_string()
         } else {
             " ".to_string() + arg
         };
         let uuid = Uuid::new_v4();
-        self.background_job.insert(uuid.to_string());
+        //self.background_job.insert(uuid.to_string());
         let command = format!("bgapi {}{}\nJob-UUID: {}", cmd, arg, uuid);
 
         match self.send_recv(command).await {
             Ok(event) => {
                 info!("{:?}", event);
-                return Ok(event);
+                return Some(uuid);
             }
             Err(e) => {
                 error!("{:?}", e);
-                return Err(e);
+                return None;
             }
         }
     }
@@ -95,7 +93,7 @@ impl EslHandle {
         call_uuid: &str,
     ) -> Result<Event, EslError> {
         let uuid = uuid::Uuid::new_v4().to_string();
-        self.background_job.insert(uuid.to_string());
+        //self.background_job.insert(uuid.to_string());
         let command  = format!("sendmsg {}\nexecute-app-name: {}\nexecute-app-arg: {}\ncall-command: execute\nEvent-UUID: {}",call_uuid,app,args,uuid);
         info! {"{}", command};
 
@@ -141,9 +139,9 @@ impl EslHandle {
         Ok(())
     }
 
-    pub async fn start_events_listen(reader: &mut FramedReader, func: &dyn Fn(Event)) {
+    pub async fn start_events_listen(&mut self, func: &dyn Fn(&Event)) {
         loop {
-            match reader.next().await {
+            match self.reader.next().await {
                 None => {
                     trace!("framd_reader read none");
                     break;
@@ -153,15 +151,17 @@ impl EslHandle {
                     break;
                 }
                 Some(Ok(event)) => {
-                    func(event);
+                    func(&event);
 
-                    // if let Some(uuid) = event.get_header("Job-UUID") {
-                    //     if self.background_job.contains(uuid) {
-                    //         self.background_job.remove(uuid);
-                    //     } else {
-                    //         error!("extra uuid {:?}", uuid);
-                    //     }
-                    // }
+                    /*
+                    if let Some(uuid) = event.get_header("Job-UUID") {
+                        if self.background_job.contains(uuid) {
+                            self.background_job.remove(uuid);
+                        } else {
+                            error!("extra uuid {:?}", uuid);
+                        }
+                    }
+                    */
                 }
             }
         }
