@@ -1,18 +1,18 @@
-use std::collections::HashMap;
 use bytes::{Buf, BytesMut};
 use serde_json::Value;
+use std::collections::HashMap;
 use tokio_util::codec;
 
 use crate::esl::EslEventType;
 use crate::event::{self, Event};
 use crate::{error::EslError, event::EslMsg};
-use log::{debug, error, trace, warn,info};
+use log::{debug, error, info, trace, warn};
 
 #[derive(Debug, Clone)]
 pub struct EslCodec {}
 
 impl EslCodec {
-    pub fn new() -> EslCodec {
+    pub fn default() -> EslCodec {
         EslCodec {}
     }
 }
