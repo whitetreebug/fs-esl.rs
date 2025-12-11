@@ -1,43 +1,12 @@
 use std::collections::HashMap;
 
-use crate::error::EslError;
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Event {
     pub header: HashMap<String, String>,
     pub body: String,
 }
 
-#[derive(Debug)]
-pub struct EslMsg {
-    pub header: HashMap<String, String>,
-    pub event: Event,
-}
-
-impl EslMsg {
-    pub fn new() -> EslMsg {
-        EslMsg {
-            header: HashMap::new(),
-            event: Event::new(),
-        }
-    }
-
-    pub fn ref_event(&self) -> &Event {
-        &self.event
-    }
-
-    pub fn event(&self) -> Event {
-        self.event.clone()
-    }
-}
-
 impl Event {
-    pub fn new() -> Event {
-        Event {
-            header: HashMap::new(),
-            body: String::new(),
-        }
-    }
-
     pub fn header(&self) -> &HashMap<String, String> {
         &self.header
     }
@@ -78,6 +47,22 @@ impl Event {
         } else {
             None
         }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct EslMsg {
+    pub header: HashMap<String, String>,
+    pub event: Event,
+}
+
+impl EslMsg {
+    pub fn ref_event(&self) -> &Event {
+        &self.event
+    }
+
+    pub fn event(&self) -> Event {
+        self.event.clone()
     }
 }
 

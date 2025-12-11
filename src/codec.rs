@@ -8,14 +8,8 @@ use crate::event::{self, Event};
 use crate::{error::EslError, event::EslMsg};
 use log::{debug, error, info, trace, warn};
 
-#[derive(Debug, Clone)]
+#[derive(Debug,Default, Clone)]
 pub struct EslCodec {}
-
-impl EslCodec {
-    pub fn default() -> EslCodec {
-        EslCodec {}
-    }
-}
 
 pub fn find_crlfcrlf(src: &[u8]) -> Option<usize> {
     for (index, c) in src[..].iter().enumerate() {
@@ -30,7 +24,7 @@ pub fn convert2map(src: &[u8], event_type: EslEventType) -> HashMap<String, Stri
     let mut res = HashMap::new();
     match event_type {
         EslEventType::PLAIN => {
-            let data = String::from_utf8_lossy(&src);
+            let data = String::from_utf8_lossy(src);
             res = data
                 .split('\n')
                 .map(|line| line.split(':'))
@@ -59,7 +53,7 @@ pub fn convert2map(src: &[u8], event_type: EslEventType) -> HashMap<String, Stri
 }
 
 pub fn parse_plain(raw_event_src: &[u8]) -> Event {
-    let mut event = Event::new();
+    let mut event = Event::default();
     if let Some(raw_event_header_end_index) = find_crlfcrlf(raw_event_src) {
         event.header = convert2map(
             &raw_event_src[..raw_event_header_end_index],
@@ -76,18 +70,18 @@ pub fn parse_plain(raw_event_src: &[u8]) -> Event {
             event.header.insert("_body".to_string(), event.body.clone());
         }
     } else {
-        event.header = convert2map(&raw_event_src, EslEventType::PLAIN);
+        event.header = convert2map(raw_event_src, EslEventType::PLAIN);
     }
     event
 }
 
 pub fn parse_xml(_raw_event_src: &[u8]) -> Event {
     warn!("todo!");
-    event::Event::new()
+    event::Event::default()
 }
 
 pub fn parse_json(raw_event_src: &[u8]) -> Event {
-    let mut event = Event::new();
+    let mut event = Event::default();
     if let Some(raw_event_header_end_index) = find_crlfcrlf(raw_event_src) {
         event.header = convert2map(
             &raw_event_src[..raw_event_header_end_index],
@@ -103,7 +97,7 @@ pub fn parse_json(raw_event_src: &[u8]) -> Event {
             .to_string();
         }
     } else {
-        event.header = convert2map(&raw_event_src, EslEventType::JSON);
+        event.header = convert2map(raw_event_src, EslEventType::JSON);
     }
 
     event
@@ -143,14 +137,13 @@ impl codec::Encoder<String> for EslCodec {
 ///
 /// OK [Success]
 /// ```
-
 impl codec::Decoder for EslCodec {
     type Item = Event;
     type Error = EslError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         info!("recv\n{}", String::from_utf8_lossy(src));
-        let mut esl_msg = EslMsg::new();
+        let mut esl_msg = EslMsg::default();
         let msg_header_end_index = find_crlfcrlf(src);
         if let Some(msg_header_end_index) = msg_header_end_index {
             esl_msg.header = convert2map(&src[..msg_header_end_index], EslEventType::PLAIN);

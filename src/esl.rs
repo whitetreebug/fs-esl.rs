@@ -4,16 +4,10 @@ use futures::{
     SinkExt, StreamExt,
 };
 use log::{error, info, trace};
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    sync::{mpsc, Arc, Mutex},
-    time::Duration,
-};
-use tokio::{net::TcpStream, time};
+use tokio::net::TcpStream;
 use uuid::Uuid;
 
-use tokio::sync::oneshot::{self, Sender};
-use tokio_util::codec::{Framed, FramedRead, FramedWrite};
+use tokio_util::codec::Framed;
 
 #[derive(Debug)]
 pub enum EslEventType {
@@ -26,7 +20,8 @@ type FramedReader = SplitStream<Framed<TcpStream, EslCodec>>;
 type FramedWriter = SplitSink<Framed<TcpStream, EslCodec>, String>;
 
 pub struct EslHandle {
-    socket: String,
+    #[allow(unused)]
+    address: String,
     user: String,
     password: String,
     pub reader: FramedReader,
@@ -35,12 +30,12 @@ pub struct EslHandle {
 }
 
 impl EslHandle {
-    pub async fn inbound(socket: &str, user: &str, password: &str) -> Result<Self, EslError> {
-        let stream = TcpStream::connect(socket).await?;
-        let framed = Framed::new(stream, EslCodec::new());
+    pub async fn inbound(address: &str, user: &str, password: &str) -> Result<Self, EslError> {
+        let stream = TcpStream::connect(address).await?;
+        let framed = Framed::new(stream, EslCodec::default());
         let (framedwrite, framedread) = framed.split();
         let ret = EslHandle {
-            socket: String::from(socket),
+            address: String::from(address),
             user: user.to_string(),
             password: password.to_string(),
             reader: framedread,
@@ -53,7 +48,7 @@ impl EslHandle {
 
     pub async fn send_recv(&mut self, cmd: String) -> Result<Event, EslError> {
         self.writer.send(cmd).await?;
-        while let Some(event) = self.reader.next().await {
+        if let Some(event) = self.reader.next().await {
             return event;
         }
         Err(EslError::UnknowError)
@@ -77,11 +72,11 @@ impl EslHandle {
         match self.send_recv(command).await {
             Ok(event) => {
                 info!("{:?}", event);
-                return Some(uuid);
+                Some(uuid)
             }
             Err(e) => {
                 error!("{:?}", e);
-                return None;
+                None
             }
         }
     }
@@ -100,11 +95,11 @@ impl EslHandle {
         match self.send_recv(command).await {
             Ok(event) => {
                 info!("{:?}", event);
-                return Ok(event);
+                Ok(event)
             }
             Err(e) => {
                 error!("{:?}", e);
-                return Err(e);
+                Err(e)
             }
         }
     }
@@ -125,12 +120,10 @@ impl EslHandle {
     }
 
     pub async fn auth(&mut self) -> Result<Event, EslError> {
-        let cmd;
-        if self.user.is_empty() {
-            cmd = format!("auth {}", self.password);
-        } else {
-            cmd = format!("auth {} {}", self.user, self.password);
-        }
+        let cmd = match self.user.is_empty() {
+            true => format!("auth {}", self.password),
+            false => format!("auth {} {}", self.user, self.password),
+        };
         self.send_recv(cmd).await
     }
 
