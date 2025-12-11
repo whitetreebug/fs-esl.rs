@@ -42,12 +42,11 @@ impl EslHandle {
             writer: framedwrite,
             //background_job: HashSet::new(),
         };
-
         Ok(ret)
     }
 
-    pub async fn send_recv(&mut self, cmd: String) -> Result<Event, EslError> {
-        self.writer.send(cmd).await?;
+    pub async fn send_recv(&mut self, cmd: &str) -> Result<Event, EslError> {
+        self.writer.send(cmd.to_string()).await?;
         if let Some(event) = self.reader.next().await {
             return event;
         }
@@ -55,7 +54,7 @@ impl EslHandle {
     }
     pub async fn api(&mut self, cmd: &str, arg: &str) -> Result<Event, EslError> {
         let cmd = format!("api {} {}", cmd, arg);
-        self.send_recv(cmd).await
+        self.send_recv(&cmd).await
     }
 
     //should subscribe BACKGROUND_JOB first
@@ -67,9 +66,9 @@ impl EslHandle {
         };
         let uuid = Uuid::new_v4();
         //self.background_job.insert(uuid.to_string());
-        let command = format!("bgapi {}{}\nJob-UUID: {}", cmd, arg, uuid);
+        let cmd = format!("bgapi {}{}\nJob-UUID: {}", cmd, arg, uuid);
 
-        match self.send_recv(command).await {
+        match self.send_recv(&cmd).await {
             Ok(event) => {
                 info!("{:?}", event);
                 Some(uuid)
@@ -89,10 +88,10 @@ impl EslHandle {
     ) -> Result<Event, EslError> {
         let uuid = uuid::Uuid::new_v4().to_string();
         //self.background_job.insert(uuid.to_string());
-        let command  = format!("sendmsg {}\nexecute-app-name: {}\nexecute-app-arg: {}\ncall-command: execute\nEvent-UUID: {}",call_uuid,app,args,uuid);
-        info! {"{}", command};
+        let cmd  = format!("sendmsg {}\nexecute-app-name: {}\nexecute-app-arg: {}\ncall-command: execute\nEvent-UUID: {}",call_uuid,app,args,uuid);
+        info! {"{}", cmd};
 
-        match self.send_recv(command).await {
+        match self.send_recv(&cmd).await {
             Ok(event) => {
                 info!("{:?}", event);
                 Ok(event)
@@ -115,8 +114,8 @@ impl EslHandle {
             EslEventType::JSON => "json",
             EslEventType::XML => "xml",
         };
-        self.send_recv(format!("event {} {}", event_type, events.join(" ")))
-            .await
+        let cmd = format!("event {} {}", event_type, events.join(" "));
+        self.send_recv(&cmd).await
     }
 
     pub async fn auth(&mut self) -> Result<Event, EslError> {
@@ -124,11 +123,11 @@ impl EslHandle {
             true => format!("auth {}", self.password),
             false => format!("auth {} {}", self.user, self.password),
         };
-        self.send_recv(cmd).await
+        self.send_recv(&cmd).await
     }
 
     pub async fn disconnect(&mut self) -> Result<(), EslError> {
-        self.send_recv("exit".to_string()).await?;
+        self.send_recv("exit").await?;
         Ok(())
     }
 

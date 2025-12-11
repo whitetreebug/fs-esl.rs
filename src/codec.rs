@@ -1,21 +1,24 @@
 use bytes::{Buf, BytesMut};
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use tokio_util::codec;
 
 use crate::esl::EslEventType;
 use crate::event::{self, Event};
 use crate::{error::EslError, event::EslMsg};
-use log::{debug, error, info, trace, warn};
+use log::{error, info, trace, warn};
 
-#[derive(Debug,Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct EslCodec {}
 
-pub fn find_crlfcrlf(src: &[u8]) -> Option<usize> {
-    for (index, c) in src[..].iter().enumerate() {
-        if c == &b'\n' && src.get(index + 1) == Some(&b'\n') {
-            return Some(index);
-        }
+pub fn find_header_end(src: &[u8]) -> Option<(usize, usize)> {
+    if let Some(start) = src.windows(4).position(|window| window == b"\r\n\r\n") {
+        return Some((start, start + 4));
+    }
+
+    if let Some(start) = src.windows(2).position(|window| window == b"\n\n") {
+        return Some((start, start + 2));
     }
     None
 }
@@ -27,13 +30,10 @@ pub fn convert2map(src: &[u8], event_type: EslEventType) -> HashMap<String, Stri
             let data = String::from_utf8_lossy(src);
             res = data
                 .split('\n')
-                .map(|line| line.split(':'))
-                .map(|mut i| {
-                    (
-                        i.next().unwrap().trim().to_string(),
-                        i.next().unwrap().trim().to_string(),
-                    )
-                })
+                .filter_map(|line| line.split_once(':'))
+                .map(|(key, value)| (key.trim(), value.trim()))
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                // .map(|(key, value)| (Cow::Borrowed(key), Cow::Borrowed(value)))
                 .collect::<HashMap<String, String>>();
         }
         EslEventType::JSON => {
@@ -54,20 +54,18 @@ pub fn convert2map(src: &[u8], event_type: EslEventType) -> HashMap<String, Stri
 
 pub fn parse_plain(raw_event_src: &[u8]) -> Event {
     let mut event = Event::default();
-    if let Some(raw_event_header_end_index) = find_crlfcrlf(raw_event_src) {
-        event.header = convert2map(
-            &raw_event_src[..raw_event_header_end_index],
-            EslEventType::PLAIN,
-        );
+    if let Some((index_start, index_end)) = find_header_end(raw_event_src) {
+        event.header = convert2map(&raw_event_src[..index_start], EslEventType::PLAIN);
         if let Some(raw_event_body_len) = event.header.get("Content-Length") {
-            let raw_event_body_len = raw_event_body_len.parse::<usize>().unwrap();
-            let raw_event_header_end_index = raw_event_header_end_index + 2; //\n\n
-            event.body = String::from_utf8_lossy(
-                &raw_event_src
-                    [raw_event_header_end_index..(raw_event_header_end_index + raw_event_body_len)],
-            )
-            .to_string();
-            event.header.insert("_body".to_string(), event.body.clone());
+            if let Ok(raw_event_body_len) = raw_event_body_len.parse::<usize>() {
+                event.body = String::from_utf8_lossy(
+                    &raw_event_src[index_end..(index_end + raw_event_body_len)],
+                )
+                .to_string();
+                event.header.insert("_body".to_string(), event.body.clone());
+            } else {
+                error!("parse body Content-Length failed {:?}", raw_event_src);
+            }
         }
     } else {
         event.header = convert2map(raw_event_src, EslEventType::PLAIN);
@@ -82,19 +80,17 @@ pub fn parse_xml(_raw_event_src: &[u8]) -> Event {
 
 pub fn parse_json(raw_event_src: &[u8]) -> Event {
     let mut event = Event::default();
-    if let Some(raw_event_header_end_index) = find_crlfcrlf(raw_event_src) {
-        event.header = convert2map(
-            &raw_event_src[..raw_event_header_end_index],
-            EslEventType::JSON,
-        );
+    if let Some((index_start, index_end)) = find_header_end(raw_event_src) {
+        event.header = convert2map(&raw_event_src[..index_start], EslEventType::JSON);
         if let Some(raw_event_body_len) = event.header.get("Content-Length") {
-            let raw_event_body_len = raw_event_body_len.parse::<usize>().unwrap();
-            let raw_event_header_end_index = raw_event_header_end_index + 2; //\n\n
-            event.body = String::from_utf8_lossy(
-                &raw_event_src
-                    [raw_event_header_end_index..(raw_event_header_end_index + raw_event_body_len)],
-            )
-            .to_string();
+            if let Ok(raw_event_body_len) = raw_event_body_len.parse::<usize>() {
+                event.body = String::from_utf8_lossy(
+                    &raw_event_src[index_end..(index_end + raw_event_body_len)],
+                )
+                .to_string();
+            } else {
+                error!("parse body Content-Length failed {:?}", raw_event_src);
+            }
         }
     } else {
         event.header = convert2map(raw_event_src, EslEventType::JSON);
@@ -142,39 +138,53 @@ impl codec::Decoder for EslCodec {
     type Error = EslError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        info!("recv\n{}", String::from_utf8_lossy(src));
-        let mut esl_msg = EslMsg::default();
-        let msg_header_end_index = find_crlfcrlf(src);
-        if let Some(msg_header_end_index) = msg_header_end_index {
-            esl_msg.header = convert2map(&src[..msg_header_end_index], EslEventType::PLAIN);
-            trace!("esl_msg.header: {:?}", esl_msg.header);
-            let msg_header_end_index = msg_header_end_index + 2; //\n\n
+        info!("recv\n{:?}", src);
+        let res = match find_header_end(src) {
+            Some((index_start, index_end)) => {
+                let mut esl_msg = EslMsg {
+                    header: convert2map(&src[..index_start], EslEventType::PLAIN),
+                    event: Event::default(),
+                };
+                trace!("esl_msg.header: {:?}", esl_msg.header);
 
-            if let Some(raw_event_len) = esl_msg.header.get("Content-Length") {
-                let raw_event_len = raw_event_len.parse::<usize>().unwrap();
-                if raw_event_len <= src.len() {
-                    let raw_event_src =
-                        &src[msg_header_end_index..msg_header_end_index + raw_event_len];
-                    if let Some(content_type) = esl_msg.header.get("Content-Type") {
-                        match content_type.as_str() {
-                            "text/event-plain" => esl_msg.event = parse_plain(raw_event_src),
-                            "text/event-json" => esl_msg.event = parse_json(raw_event_src),
-                            "text/event-xml" => esl_msg.event = parse_json(raw_event_src),
-                            _ => error!("more condition need to deal"),
+                if let Some(raw_event_len) = esl_msg.header.get("Content-Length") {
+                    if let Ok(raw_event_len) = raw_event_len.parse::<usize>() {
+                        if raw_event_len <= src.len() {
+                            let raw_event_src = &src[index_end..index_end + raw_event_len];
+                            if let Some(content_type) = esl_msg.header.get("Content-Type") {
+                                match content_type.as_str() {
+                                    "text/event-plain" => {
+                                        esl_msg.event = parse_plain(raw_event_src)
+                                    }
+                                    "text/event-json" => esl_msg.event = parse_json(raw_event_src),
+                                    "text/event-xml" => esl_msg.event = parse_json(raw_event_src),
+                                    "text/rude-rejection" | "text/disconnect-notice" => {
+                                        return Err(EslError::AccessDeniedError(
+                                            "ACL Refuse".to_string(),
+                                        ));
+                                    }
+                                    _ => {
+                                        error!("more condition need to deal, {:?}", &esl_msg.header)
+                                    }
+                                }
+                            }
+
+                            src.advance(index_end + raw_event_src.len());
+                        } else {
+                            return Ok(None);
                         }
+                    } else {
+                        error!("parse header Content-Length failed {:?}", esl_msg.header);
                     }
-
-                    src.advance(msg_header_end_index + raw_event_src.len());
                 } else {
-                    return Ok(None);
+                    src.advance(index_end);
                 }
-            } else {
-                src.advance(msg_header_end_index);
+                trace!("recv event: {:?}", esl_msg);
+                Ok(Some(esl_msg.event))
             }
-            debug!("recv event: {:?}", esl_msg);
-            Ok(Some(esl_msg.event))
-        } else {
-            Ok(None)
-        }
+            None => Ok(None),
+        };
+
+        res
     }
 }

@@ -43,8 +43,11 @@ fn setup_logger() -> Result<(), fern::InitError> {
 #[tokio::main]
 async fn main() -> Result<(), EslError> {
     setup_logger().unwrap();
-    let mut handle = EslHandle::inbound("127.0.0.1:8021", "", "ClueCon").await?;
-    handle.auth().await?;
+    let mut handle = EslHandle::inbound("10.18.96.23:8021", "", "ClueCon").await?;
+    if let Err(e) = handle.auth().await {
+        error!("auth failed:{}", e.to_string());
+        return Err(e);
+    }
     let events = vec![
         "BACKGROUND_JOB",
         "CHANNEL_CREATE",
@@ -57,7 +60,7 @@ async fn main() -> Result<(), EslError> {
     ];
     //let events = vec!["ALL"];
     handle.subscribe(EslEventType::PLAIN, events).await.unwrap();
-    let uuid = handle.bgapi("reloadxml","").await;
+    let uuid = handle.bgapi("reloadxml", "").await;
     handle.start_events_listen(&func).await;
     Ok(())
 }

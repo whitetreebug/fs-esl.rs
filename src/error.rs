@@ -8,6 +8,9 @@ pub enum EslError {
     #[error("InternalError")]
     InternalError(#[from] io::Error),
 
+    #[error("AccessDeniedError")]
+    AccessDeniedError(String),
+
     #[error("ParseIntError")]
     ParseIntError(#[from] num::ParseIntError),
 

@@ -56,16 +56,6 @@ pub struct EslMsg {
     pub event: Event,
 }
 
-impl EslMsg {
-    pub fn ref_event(&self) -> &Event {
-        &self.event
-    }
-
-    pub fn event(&self) -> Event {
-        self.event.clone()
-    }
-}
-
 /*
     "CUSTOM",
     "CLONE",
