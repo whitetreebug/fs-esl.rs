@@ -99,11 +99,11 @@ pub fn parse_json(raw_event_src: &[u8]) -> Event {
     event
 }
 
-impl codec::Encoder<String> for EslCodec {
+impl codec::Encoder<&[u8]> for EslCodec {
     type Error = EslError;
 
-    fn encode(&mut self, item: String, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        dst.extend_from_slice(item.as_bytes());
+    fn encode(&mut self, item: &[u8], dst: &mut BytesMut) -> Result<(), Self::Error> {
+        dst.extend_from_slice(item);
         dst.extend_from_slice(b"\n\n");
         trace!("send: {:?}", dst);
         Ok(())
